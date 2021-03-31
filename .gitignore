@@ -1,0 +1,8 @@
+node_modules
+out
+*~
+*.aux
+*.log
+*.pdf
+*.bbl
+*.blg

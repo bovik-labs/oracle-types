@@ -1,0 +1,18 @@
+version: "3"
+services:
+  app:
+    build: .
+    depends_on:
+     - database
+    command: /tapeworm/scripts/populate.sh
+    environment:
+      DB_HOST: database
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+  database:
+    image: postgres:9.6
+    environment:
+       POSTGRES_USER: postgres
+       POSTGRES_DB: postgres
+       POSTGRES_PASSWORD: glorpglop
+

@@ -1,0 +1,6 @@
+version: "3"
+services:
+  app:
+    volumes:
+    - ./magic_demo:/tapeworm/magic_demo
+    - ./get_schema:/tapeworm/get_schema

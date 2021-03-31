@@ -1,0 +1,692 @@
+\documentclass{article}
+
+\pagestyle{empty} % SIGBOVIK submission wants no page-numbers,
+                  % presumably so they can insert their own in the
+                  % proceedings pdf.
+
+\usepackage{url}
+\usepackage{lstlinebgrd}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{float}
+
+\input{theorem}
+
+\input{prooftree}
+
+
+\bibliographystyle{alpha}
+\title{Oracle Types}
+\author{Akiva Leffert \and Jason Reed  }
+\usepackage{xcolor}
+\definecolor{darkgreen}{rgb}{0,0.5,0}
+\usepackage{courier}
+\lstdefinelanguage{sql}{
+  keywords={CREATE, TABLE, PRIMARY, KEY, NOT, NULL, REFERENCES},
+  ndkeywords={int, text}
+}
+\lstdefinelanguage{ts}{
+  keywords={typeof,const, await, new, true, false, catch, function, async, return, null, catch, switch, var, if, in, while, do, else, case, break},
+  keywordstyle=\color{blue}\bfseries,
+  ndkeywords={class, export, boolean, throw, implements, import, this, type},
+  ndkeywordstyle=\color{darkgreen}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{purple}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]',
+  morestring=[b]",
+}
+
+\lstset{ %
+   basicstyle=\tiny\ttfamily,        % the size of the fonts that are used for the code
+  breakatwhitespace=false,         % sets if automatic breaks should only happen at whitespace
+  breaklines=true,                 % sets automatic line breaking
+  captionpos=b,                    % sets the caption-position to bottom
+  deletekeywords={...},            % if you want to delete keywords from the given language
+  escapeinside={\%*}{*)},          % if you want to add LaTeX within your code
+  extendedchars=true,              % lets you use non-ASCII characters; for 8-bits encodings only, does not work with UTF-8
+  frame=tb,	                   	   % adds a frame around the code
+  keepspaces=true,                 % keeps spaces in text, useful for keeping indentation of code (possibly needs columns=flexible)
+  language=ts,                 % the language of the code (can be overrided per snippet)
+  otherkeywords={*,...},           % if you want to add more keywords to the set
+  numbers=left,                    % where to put the line-numbers; possible values are (none, left, right)
+  numbersep=5pt,                   % how far the line-numbers are from the code
+  showspaces=false,                % show spaces everywhere adding particular underscores; it overrides 'showstringspaces'
+  showstringspaces=false,          % underline spaces within strings only
+  showtabs=false,                  % show tabs within strings adding particular underscores
+  stepnumber=1,                    % the step between two line-numbers. If it's 1, each line will be numbered
+  tabsize=2,	                   % sets default tabsize to 2 spaces
+  title=\lstname,                  % show the filename of files included with \lstinputlisting; also try caption instead of title
+  columns=fixed                    % Using fixed column width (for e.g. nice alignment)
+}
+\def\x{\times}
+\def\to{\rightarrow}
+\begin{document}
+
+\maketitle
+\begin{abstract}
+We present Oracle Types, a new type-theoretic primitive for
+Typescript, which permits user-customizable extensions to the type
+language and type-checking algorithms. This enables several
+applications: arithmetic constraint checking, a dynamic live-update ORM, type-safe
+localization of multi-language data, and a rich, `mobile-first'
+interactive type-checking experience.
+\end{abstract}
+\section{Introduction}
+Although advanced type systems are commonly available, even for languages
+such as Javascript, the unquenchable thirst for new type-theoretic features
+exceeds the ability of even the most diligent implementors to keep up. But
+that hasn't stopped Typescript from trying. Pursuing their mission of typing
+even the most outlandish of Javascript programs, the Typescript team has
+taken the `yes and' approach to theoretical constructs to new heights,
+introducing concepts such as conditional types and string template types.
+
+Still, despite their best attempts, the designers of Typescript have failed to achieve
+apotheosis.
+
+What is needed, clearly, is {\em extensibility}, so that programmers
+can use whichever type theoretic features are most important to their
+domain, defying the limits of the system's creators. We employ a
+well-understood theoretical device to make things sort of work out in
+some arbitrary fashion despite the shackles of previously established
+premises (\cite{lost}) and defer to an {\em external oracle}.
+
+In order to do this in a principled way we introduce {\em Oracle
+  Types} and proceed to demonstrate their utility by adding them into
+the Typescript compiler.
+
+In Section~\ref{constraint}, we show how oracle types can be used to
+attach annotations to numeric types which express arithmetic
+properties of them, which can be checked at compile time with
+constraint solvers. In Section~\ref{translation}, we use oracle types
+to automate localization of data structure fields. In
+Section~\ref{orm}, a dynamic ORM based on oracle types automatically
+ensures that the types of the primitives provided by the ORM reflect
+the current schema of the database, without requiring any explicit
+schema recompilation step. In Section~\ref{mobile}, we discuss an
+application that oracle types are uniquely suited for: using modern
+mobile technology, we can tap the type-theoretic expertise of
+individual human beings in real-time to contribute interactively to the
+type-checking process.
+
+Our implementation is available at
+{\center\url{https://github.com/bovik-labs/oracle-types}}
+\section{Examples}
+
+\subsection{Arithmetic Constraints}
+\label{constraint}
+
+An example of a {\em refinement type} of numbers is one that constrains a number to have a certain arithmetic property.
+For example, we can introduce the type
+
+\[\texttt{type LessEq<T extends number>} = \cdots\]
+
+so that, for example,  {\tt LessEq<5>} is the type of all numbers that are less than or equal 5.
+Similarly, we have type operators such as
+
+\[\texttt{type Plus<T extends number, U extends number>} = \cdots\]
+
+So that if $2$ and $3$ are understood as the singleton refinements consisting of only the number 2 (and 3, respectively),
+then naturally {\tt Plus<2,3>} is the singleton type consisting of only the number 5. Using Oracle Types, we can automate
+inference of semantically entailed subtyping relationships, by appealing to the constraint solver Z3 \cite{z3}
+to do the actual inference. For example, in the following code:
+
+\begin{lstlisting}
+import { Plus, LessEq, infer } from './z3';
+
+function test_cases(x: LessEq<5>) {
+
+  //// Error, because <= x (+ 2 3) is not the same as <= x 5!
+  { const bad: LessEq<Plus<2, 3>> = x; }
+
+  // However:
+  { const good: LessEq<Plus<2, 3>> = infer(x); }
+
+  //// Error, because not sound to infer <= (+ 2 2) from <= 5!
+  { const bad: LessEq<Plus<2, 2>> = infer(x); }
+
+  // <= 5 implies <= 6
+  { const good: LessEq<Plus<2, 4>> = infer(x); }
+
+}
+\end{lstlisting}
+the {\tt infer} function allows subtyping from one {\tt LessEq} constraint to another, so long as the entailment
+is valid over the ordered monoid natural numbers under addition. The programmer must remember to insert enough
+{\tt infer} calls to mediate between syntactically non-identical constraint types, but due to Typescript's own type inference,
+the annotation burden is fairly mild: the type indexes on infer need not be specified in the example above, because they
+can be inferred from the return constraint type.
+\subsection{Dynamic Translantion}
+\label{translation}
+Ah, language, a true wonder of human ingenuity. And yet, most
+programming is done in English. APIs are typically designed in
+English. This hardly seems fair to the 94\% of the people of the world
+whose first language is not English. Good software is localized.
+Evidently programming languages are not good software. Even were one
+to localize a language itself, it would have to interact with English
+language names for libraries, API payloads, etc.
+
+Oracle types give us a solution. Consider a function
+\[\mathtt{Localize} : \mathtt{string} \x \mathtt{string} \times \tau \to \tau\]
+ that would
+localize the fields of a record. For example, suppose we want to write
+a calendaring app, and we have a record with fields for each day of the week.
+
+\begin{lstlisting}
+type Schedule = {
+  'Sunday': string,
+  'Monday': string,
+  'Tuesday': string,
+  'Wednesday': string,
+  'Thursday': string,
+  'Friday': string,
+  'Saturday': string
+}
+\end{lstlisting}
+
+Look at those garbage English names! {\em ?`Y si quisi\'eramos
+  programar en espa\~nol? } With the $\mathtt{Localized}$ type
+constructor, we can easily solve this problem. Simply wrap your type
+in it:
+
+\begin{lstlisting}
+type Calendario = Localized<'en', 'es', Schedule>
+
+// Equivalent to
+type Calendario = {
+  'Domingo': string,
+  'Lunes': string,
+  'Martes': string,
+  'Miercoles': string,
+  'Jueves': string,
+  'Viernes': string,
+  'Sabado': string
+}
+\end{lstlisting}
+
+\subsection{Dynamic ORM}
+\label{orm}
+
+An inconvenience of most ORM (Object-Relational Model) systems is that
+the user needs to explicitly represent the database schema in some way
+that the ORM can consume it, and present an API to the user that is
+type-correct with respect to that schema. With Oracle Types, we can
+avoid this explicit step, and instead consult the database itself at
+type-check time, and type the ORM API functions accordingly.
+
+Here is a small example to demonstrate its use. We imagine a database
+with three tables, {\tt users}, {\tt papers}, and {\tt reviews}, to
+model a set of research papers and reviews thereof. Its schema is the following:
+\begin{lstlisting}[language=sql]
+CREATE TABLE users (id int PRIMARY KEY NOT NULL, name text);
+CREATE TABLE papers (id int PRIMARY KEY NOT NULL, title text, author int REFERENCES users(id));
+CREATE TABLE reviews (
+  id int PRIMARY KEY NOT NULL,
+  score int,
+  author int REFERENCES users(id),
+  paper int REFERENCES papers(id)
+);
+\end{lstlisting}
+
+Using this database we can write the following typescript code:
+\begin{lstlisting}
+import { getModels } from './orm';
+
+const connection = <const>{
+  db: 'postgres',
+  user: 'postgres',
+  host: 'database',
+  port: 5432
+}
+
+async function go() {
+  const models = await getModels(connection);
+  const User = models.get('users');
+  const Paper = models.get('papers');
+  const Review = models.get('reviews');
+
+  const papers = await Paper.findAll();
+  for (let i = 0; i < papers.length; i++) {
+    const paper = papers[i];
+    const author = (await paper.author()).name;
+    console.log(`paper id ${paper.id} title ${paper.title} author ${author}`);
+  }
+
+  const users = await User.findAll();
+  users.forEach(user => {
+    const id = user.id;
+    const name = user.name;
+    console.log(`their name is ${name} and id is ${id}`);
+  });
+
+  // Transitive foreign key traversals should work
+  const review = (await Review.findAll())[0];
+  const { author, id, paper, score } = review;
+  const opaper = await paper();
+  const oauthor = await author();
+  console.log(`the review had score ${score} and was written by ${oauthor.name}`);
+  console.log(`the paper it was about was by ${(await opaper.author()).name}`);
+
+  process.exit(0);
+}
+\end{lstlisting}
+
+On line 3, we set up the connection information required to connect to the database.
+Line 11 uses this information to obtain a single object that contains models
+for all tables of the database. Lines 12-14 get individual tables out of the models
+object --- enough type information is present that the programmer can autocomplete
+on the names of the tables upon entering the argument of the {\tt get} method.
+
+On line 19 we can see that we can get the author of a paper in a natural way,
+because the {\tt paper} model object obtained from line 16 has a method that
+is automatically populated from the foreign key relationship between the
+{\tt papers} table and the {\tt users} table.
+
+Lines 31-36 demonstrate that traversing multiple hops through the
+foreign key graph is scarcely more difficult than one hop.
+
+The principal advantage of this design is that if the database schema
+changes in such a way that the code is no longer semantically valid,
+that invalidity is immediately realized as a type error, without any
+intermediate step being required to regenerate the host-language
+representation of the schema.
+
+\subsection{Mobile-First Interactive Typechecking}
+\label{mobile}
+We take inspiration from other systems research work, in which a failure to answer a query by normal
+means can be remediated by a technique (pioneered in \cite{millionaire}) called `Phone-a-Friend'.
+
+Our realization of this protocol works as follows. The library we provide offers a type constructor
+{\tt PhoneAFriend<PhoneNumber, Query>}, which uses an external SMS API service to relay the query
+to the human with the given phone number. The human makes a response, which the SMS service sends
+to a previously configured HTTP endpoint on a webhook server running in the cloud. The typechecker makes an
+http request to the webhook server, waiting on a response, which is parsed into a type by our library.
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{phone-a-friend}
+\caption{Interactive Type-Checking Network Architecture}
+\end{figure}
+
+\section{Implementation}
+The key implementation technique that enables all the above
+applications, which, to the best of the authors' knowledge, has
+somehow been overlooked by decades of programming language research,
+is allowing a type operator to have the ability, as a side-effect, to run an
+arbitrary shell command dervied from a type argument.
+
+\subsection{Modifying the Typescript Compiler}
+Typescript 4.1 \cite{typescript-4.1} added several new {\tt IntrinsicTypeKind} type operators which allow manipulation
+of types extending {\tt string}. For example, {\tt Uppercase<'foo' | 'bar'>} reduces to the type {\tt 'FOO' | 'BAR'}.
+By analogy with these types, we introduce {\tt Shell<T extends string>}, whose semantics is defined as follows:
+Any strings in the disjunctive expansion of {\tt T} are executed as shell subprocesses, and whatever they write
+to the {\tt stdout} file descriptor is collected and yielded as the result type. The implementation is quite simple; the
+crux of the change required is to extend the function {\tt applyStringMapping} in {\tt TypeScript/src/compiler/checker.ts}
+like so:
+\begin{lstlisting}[linebackgroundcolor={ \ifnum\value{lstnumber}>6\ifnum\value{lstnumber}<10 \color{green!25}\fi\fi
+}]
+        function applyStringMapping(symbol: Symbol, str: string) {
+            switch (intrinsicTypeKinds.get(symbol.escapedName as string)) {
+                case IntrinsicTypeKind.Uppercase: return str.toUpperCase();
+                case IntrinsicTypeKind.Lowercase: return str.toLowerCase();
+                case IntrinsicTypeKind.Capitalize: return str.charAt(0).toUpperCase() + str.slice(1);
+                case IntrinsicTypeKind.Uncapitalize: return str.charAt(0).toLowerCase() + str.slice(1);
+                case IntrinsicTypeKind.Shell: {
+                    const exec = require('child_process').execSync;
+                    return exec(str).toString();
+                }
+            }
+            return str;
+        }
+\end{lstlisting}
+The remaining changes are mere plumbing to ensure that {\tt IntrinsicTypeKind.Shell} is well-defined
+in the same way as {\tt Uppercase}, {\tt Lowercase}, etc.
+
+\subsection{Implementing Arithmetic Constraints}
+
+Given the type primitive {\tt Shell<T>}, it is relatively straightforward to interface with Z3
+to provide constraint solving in the type system. We work throughout with template string literal
+types to manipulate sexpressions in SMT-LIB \cite{smtlib} format.
+
+\begin{lstlisting}
+// Strip trailing newline from a string literal type
+type StripNl<T extends string> = T extends `${infer S}\n` ? S : T;
+
+// Given a string type containing an sexp expressing a z3 program,
+// return 'sat' or 'unsat'
+type SolverResult<Z3 extends string> =
+  StripNl<Shell<`echo '${Z3}' | z3 -in`>>;
+
+// A phantom type used to express constraints about integer values
+type Constr<T> = { constr: T };
+
+// An integer value so constrained
+type ConstrNum<T> = number & Constr<T>;
+
+// Generate a Z3 assertion for constraint T
+type GenAssert<T> = T extends string ? `(${T})` : 'false';
+
+// Generate Z3 code that checks whether T implies U.
+// Z3 will return 'unsat' if the implication *does* hold,
+// because T && !U will be false.
+type GenZ3<T, U> = `
+(declare-const x Int)
+(assert ${GenAssert<T>})
+(assert (not ${GenAssert<U>}))
+(check-sat)
+`;
+
+// If T => U, yields the appropriate result type for constraint U, otherwise unknown.
+type InferCond<T, U> = SolverResult<GenZ3<T, U>> extends 'unsat' ? ConstrNum<U> : unknown;
+
+// Convert x from one constraint type to another
+export function infer<T, U>(x: ConstrNum<T>): InferCond<T, U> {
+  return x as any;
+}
+
+type strish = string | number;
+export type Plus<T extends strish, U extends strish> = `(+ ${T} ${U})`;
+export type LessEq<T extends strish> = ConstrNum<`<= x ${T}`>;
+\end{lstlisting}
+
+The type constructors {\tt Plus} and {\tt LessEq} (lines 37-38) build
+up sexpressions representing addition and the boolean less-than
+constraint, stringifying numerical constants as necessary. These can
+be used to build up instances of the type {\tt ConstrNum<T>} (line
+13), which represents the refinement of the type {\tt number} which
+must satisfy constraint {\tt T}. The type {\tt GenZ3} (line 21)
+converts two assertions $T$ and $U$ into a complete Z3 query which
+tries to determine the satisfiability of $T \land \lnot U$. This is the
+negation of the implication $ T \Rightarrow U$, so if the query returns an
+answer of {\bf un}satisfiable, we know the implication holds.
+for this reason, the type {\tt InferCond<T, U>} (line 29) returns
+a {\tt ConstrNum<U>} only if the {\tt GenZ3} query returns the string
+{\tt unsat}, and returns {\tt unknown} otherwise, inducing a type
+error, in the case that the attempted subtyping coercion fails.
+
+\subsection{Implementing Localized Types}
+To implement localization, we can simply shell out to a script that
+calls into the Google Translate API, or uses a local dictionary on the filesystem.
+
+\subsection{Implementing the Dynamic ORM}
+
+In order to implement the dynamic ORM, we first of all must have a way
+of getting the schema out of the database. Using the well-known
+open-source postgres database engine, this is not difficult: the
+schema (and foreign key relationships) are themselves stored in
+metadata tables, and are easily obtained with standard SQL queries.
+
+A standalone script named {\tt get\_schema.js} is implemented, which
+can be called by the Oracle Type invocation like so:
+\begin{lstlisting}
+// A type representing postgres connection information
+type Conn = {
+  db: string,
+  user: string,
+  host: string,
+  port: number
+};
+
+// Given connection `C`, calls the `get_schema` script to get the
+// schema of a postgresql database and returns a string literal type
+// containing it as json.
+type SchemaTxt<C extends Conn> =
+  Shell<`node get_schema.js ${C['host']} ${C['port']} ${C['user']} ${C['db']}`>;
+\end{lstlisting}
+Template literal types are used to interpolate the database connection
+information into the command-line arguments. The output of {\tt
+  get\_schema.js} is a JSON string representing an object containing a
+description of the database schema, and so it must be parsed to obtain
+an actual object type.
+
+Fortunately, parsing JSON at the TypeScript type level is easily
+accomplished via well-understood and sound engineering practices
+\cite{parse-json}. From there, the implementation of our ORM is
+straightforward. The function {\tt getModels} uses the same
+schema-getting code (only now at run-time) to build a {\tt Models} object
+from the schema:
+\begin{lstlisting}
+export async function getModels<C extends Conn>(conn: C): Promise<ModelsI<SchemaOf<C>>> {
+  const client = get_client(conn);
+  return new Models(client, await get_schema(client)) as any;
+}
+\end{lstlisting}
+
+The {\tt Models} class so invoked simply constructs an instance of {\tt Model} for the appropriate table:
+\begin{lstlisting}
+// Given a DbSchema, returns a class with getters for individual tables
+class Models<DB extends DbSchema> {
+  constructor(public client: DbClient, public schema: DB) { }
+
+  get<K extends string & keyof DB['table_schemas']>(tableName: K): TableModel<DB, DB['table_schemas'][K]> {
+    return new Model<DB, DB['table_schemas'][K]>(this, tableName);
+  }
+}
+\end{lstlisting}
+We can see here specifically how IDE auto-completion of table names functions; {\tt DbSchema}'s field
+{\tt table\_schemas} is a map whose keys are table names, so the type of the only argument
+of {\tt get} becomes a disjunction type of all table names, and the TypeScript language server can
+communicate exactly this set to the programmer.
+
+Finally, the heart of the implementation is the {\tt Model} class:
+\begin{lstlisting}
+// Implement the utility class for a model
+class Model<DB extends DbSchema, S extends TableSchema> implements TableModel<DB, S> {
+  constructor(public models: Models<DB>, public name: string) { }
+
+  proxyForeignKeys(row: RowModel<S>): RowOfDb<DB, S> {
+    return new Proxy(row, {
+      get: (target, prop) => {
+        const found = this.models.schema.table_schemas[this.name].cols
+          .find(col => col.column_name === prop && is_foreign(col.data_type));
+        if (found && is_foreign(found.data_type)) {
+          const dt = found.data_type;
+          return async () => {
+            const formatted = format(
+              'select * from %I tgt where tgt.%I = %L',
+              dt.target_table, dt.target_col, (row as any)[found.column_name]
+            );
+            const res = await this.models.client.query(formatted);
+            return this.proxyForeignKeys(res.rows[0]);
+          }
+        }
+        else {
+          return (target as any)[prop];
+        }
+      }
+    }) as any;
+  }
+
+  async findAll(): Promise<RowOfDb<DB, S>[]> {
+    const res = await this.models.client.query(format('select * from %I', this.name));
+    return res.rows.map(row => this.proxyForeignKeys(row)) as any;
+  }
+}
+\end{lstlisting}
+The {\tt findAll} method actuall executes a query against the
+database, asking for all rows of a table. Instead of just returning
+the rows as they are, we modify them with the method {\tt
+  proxyForeignKeys}. The effect of that is to patch field accesses to
+the row, using the {\tt Proxy} class, so that columns that are foreign
+keys become auto-populated method calls which perform further database
+queries to get the corresponding row of the foreign table.
+
+All of this proxying we have described takes place at run-time; a
+corresponding rewriting must also take place at type-checking time for
+the types to appear correct to the programmer. This takes place in the definition
+of the types that lead up to {\tt TableModel}:
+\begin{lstlisting}
+// Convert from a string describing a pg type to an appropriate typescript type
+type Inhab<K> =
+  K extends 'text' ? string :
+  K extends 'integer' ? number :
+  K;
+
+// Given a single column type, return the type that should be the value
+// part of the row record for that column.
+type MakeColumn<T extends Column> = Inhab<T['data_type']>;
+
+// Given a disjunction of columns, return the object type that is one row.
+type DisjunctToRow<T extends Column> =
+  { [K in T['column_name']]: MakeColumn<Extract<T, { column_name: K }>> };
+
+// Given a single table's schema, return the typescript type of one row of that table.
+type RowModel<S extends TableSchema> = DisjunctToRow<S['cols'][number]>;
+
+type AsyncThunk<T> = () => Promise<T>;
+
+type LookupStub<TS extends TableSchemas, TABLE> =
+  TABLE extends keyof TS ? AsyncThunk<ProxiedRowModel<TS, TS[TABLE]>> : "couldn't find table reference";
+
+type LookupStubs<TS extends TableSchemas, ROW extends { [k: string]: any }> =
+  { [K in keyof ROW]: ROW[K] extends schema.Stub<infer TGT> ?
+    LookupStub<TS, TGT> : ROW[K] };
+
+// Given a single table's schema, return the typescript type of one row of that table,
+// with proxies for foreign keys
+type ProxiedRowModel<TS extends TableSchemas, S extends TableSchema> =
+  LookupStubs<TS, RowModel<S>>;
+
+// Given a database schema (for recursive lookups), and single table's
+// schema, return the typescript type of one row of that table, with
+// proxies for foreign keys.
+type RowOfDb<DB extends DbSchema, S extends TableSchema> =
+  ProxiedRowModel<DB['table_schemas'], S>;
+
+// Given a single table's schema, return the typescript type of the utility class for that model
+interface TableModel<DB extends DbSchema, S extends TableSchema> {
+  findAll: () => Promise<RowOfDb<DB, S>[]>
+}
+\end{lstlisting}
+Note the use in {\tt LookupStubs} of conditional types with inference, in that we can find
+the target table ({\tt infer TGT}) of a stubbed foreign key in the schema.
+
+\subsection{Implementing Mobile-First Interactive Typechecking}
+
+The client-server architecture that enables SMS-based interactive
+typechecking is fairly simple. The client looks something like this:
+
+\begin{lstlisting}
+import * as http from 'http';
+import * as tiny from 'tiny-json-http';
+import * as fs from 'fs';
+
+const twilio = require('twilio');
+
+const accountSid = ... ;
+const authToken = ... ;
+const client = twilio(accountSid, authToken);
+const server = ... ;
+const url = `http://${server}/listen`;
+const args = process.argv.slice(2);
+
+async function send_msg(msg: string): Promise<any> {
+  return client.messages
+    .create({
+      from: ... ,
+      to: ... ,
+      body: msg,
+    });
+}
+
+async function go() {
+  const msg = args[0];
+  if (msg !== undefined && msg !== "") {
+    await send_msg(msg);
+  }
+  // receive response
+  const res = await tiny.get({ url });
+  console.log(res.body.message);
+}
+
+go().catch(x => console.log(JSON.stringify({ error: x })));
+\end{lstlisting}
+
+This script sends a message based on the commandline arguments,
+and makes a request to a {\tt /listen} callback, expecting to receive
+a message corresponding to the user-returned type.
+
+The server this client communicates with is build with the Twilio API:
+\begin{lstlisting}
+const fs = require('fs');
+const accountSid = ... ;
+const authToken = ... ;
+const client = require('twilio')(accountSid, authToken);
+
+const http = require('http');
+const express = require('express');
+
+const MessagingResponse = require('twilio').twiml.MessagingResponse;
+
+const app = express();
+app.use(express.urlencoded({extended: false}));
+
+// listener: undefined | (x : string) => void
+let listener = undefined;
+
+function notify(message) {
+  if (listener !== undefined) {
+	 listener(message);
+	 listener = undefined;
+  }
+}
+
+app.post('/sms', (req, res) => {
+  console.log('got a message');
+  console.log(req.body);
+  const message = req.body.Body;
+  notify(message);
+   res.writeHead(200, {'Content-Type': 'text/xml'});
+   res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+});
+
+app.get('/listen', (req, res) => {
+  listener = (message) => { res.json({message}); }
+});
+
+http.createServer(app).listen(1234, () => {
+  console.log(Relay server listening on port 1234');
+});
+\end{lstlisting}
+It establishes a webhook callback at {\tt /sms} for Twilio to notify it
+that an inbound SMS message has arrived, and notifies a listener waiting
+for a response on {\tt /listen}. The service only supports a single user
+for the sake of a prototype, but we expect it would be a fruitful exercise
+to scale this server up to many concurrent users.
+
+To use the client script {\tt client.js} from a typescript program, one
+needs only write code such as
+\begin{lstlisting}
+type Interpret<Msg extends string> = Lowercase<Msg> extends "number\n" ? number
+  : Lowercase<Msg> extends "string\n" ? string
+  : Msg;
+
+export type PhoneAFriend<Query extends string> =
+  Interpret<Lowercase<Shell<`client.js '${Query}'`>>>;
+
+const x: PhoneAFriend<'What type is 42?'> = 42;
+\end{lstlisting}
+
+When this code is typechecked, the user will be texted ``What type is
+42?'' and they will have the opportunity to respond, and their
+response will be converted to the appropriate type.
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.15]{txt-message}
+\caption{Interactive SMS Type-Checking}
+\end{figure}
+
+\section{Conclusion}
+As our example applications show, opening the door to arbitrary shell
+computation at the type level leads to a variety of useful
+applications. Petty concerns about `determinacy' or `security' or `why
+am I being charged \$0.0075' or `where did all my files go, I just
+tried to type-check some sketchy code I found on the Dark Web' are
+clearly the purview of regressive, hide-bound curmudgeons who don't
+think programming should be fun.
+
+
+\bibliography{oracle-types}
+\end{document}
