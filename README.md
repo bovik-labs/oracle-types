@@ -54,8 +54,8 @@ For all docker commands in the makefile, set the environment variable
 Twilio Demo
 -----------
 
-To get the SMS parts of the demo working, replace the invocation of `docker-build-up` above
-with
+To get the SMS parts of the "mobile-first interactive typechecking"
+demo working, replace the invocation of `docker-build-up` above with
 
     export TWILIO_JSON=/path/to/some/file/like/twilio.json
     make docker-build-up
@@ -71,15 +71,6 @@ with
 "TWILIO_AUTH_TOKEN":"..."
 }
 ```
-
-Displaying Slides
------------------
-
-Slides for the sigbovik talk are in markdown in `talk/slides.md`.
-To run a local server (which hot-reloads the talk if the slides are changed!)
-run
-
-    make run-talk
 
 Project Structure
 -----------------
@@ -100,13 +91,10 @@ Project Structure
   conveniently compile everything in `get_schema/` on the host,
   without needing a special copy of `tsc`.
 
-- `magic_demo/`: A bit of typescript to interactively edit and show
-  the database features at work. The file `orm.ts` contains the ORM
-  library, and `orm-demo.ts` shows off how to use it.
+- `magic_demo/`: Some demos meant to be run inside docker to show
+  off the applications of oracle types.
 
 - `scripts/`: some configuration scripts used by the docker environment
 
 - `TypeScript/`: the typescript compiler checked out at a branch that includes
   the "advanced type-level computation feature".
-
-- `talk/`: sigbovik presentation
