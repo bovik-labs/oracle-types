@@ -1,8 +1,12 @@
-Tapeworm
-========
+Oracle Types
+============
 
-An ORM for typescript which takes advantage of experimental advanced
-type-level computation features added to `tsc`.
+Oracle types are a proposed feature to the typescript compiler that
+allows programmer-defined extensions to the type system.
+
+Read more about them in [our paper](paper/oracle-types.pdf) to appear
+in [SIGBOVIK'21](http://sigbovik.org/2021/), or watch
+the [presentation](https://www.youtube.com/watch?v=ADPpyFnD-ac).
 
 To set up the demo environment (requires `docker` and
 `docker-compose`) do
